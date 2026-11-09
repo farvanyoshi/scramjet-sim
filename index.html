@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Scramjet Flow Lab</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Interactive 2D compressible-flow simulation of a hydrogen-fueled scramjet engine, running in your browser.">
+<meta name="description" content="Interactive 2D turbulent compressible-flow simulation of a hydrogen-fueled scramjet engine, running in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -16,9 +16,9 @@
 
   <header class="masthead">
     <div class="title-block">
-      <p class="eyebrow">Hypersonic propulsion · 2D Euler + H<sub>2</sub> combustion</p>
+      <p class="eyebrow">Hypersonic propulsion · RANS turbulence · H<sub>2</sub>–air combustion</p>
       <h1>Scramjet Flow Lab</h1>
-      <p class="lede">A supersonic-combustion ramjet flying at <span id="lede-mach">Mach 6</span>, 30&nbsp;km up. Air enters faster than sound, gets squeezed by shock waves, burns hydrogen without ever slowing to subsonic, and blasts out the nozzle. Change the speed and the fuel and watch the flow respond.</p>
+      <p class="lede">A supersonic-combustion ramjet flying at <span id="lede-mach">Mach 6</span>, 30&nbsp;km up. Air enters faster than sound, gets squeezed by shock waves, mixes with hydrogen and burns without ever slowing to subsonic. Turbulent boundary layers, wall friction and wall heating are all simulated.</p>
     </div>
     <div class="status" id="status" data-state="settling">
       <span class="status-dot" aria-hidden="true"></span>
@@ -30,12 +30,16 @@
   </header>
 
   <section class="tunnel" aria-label="Simulation">
-    <div class="field-tabs" role="tablist" aria-label="What to show">
-      <button type="button" role="tab" id="tab-mach" data-field="mach" aria-selected="true">Mach</button>
-      <button type="button" role="tab" id="tab-temperature" data-field="temperature" aria-selected="false">Temperature</button>
-      <button type="button" role="tab" id="tab-pressure" data-field="pressure" aria-selected="false">Pressure</button>
-      <button type="button" role="tab" id="tab-schlieren" data-field="schlieren" aria-selected="false">Schlieren</button>
-      <button type="button" role="tab" id="tab-fuel" data-field="fuel" aria-selected="false">Fuel &amp; flame</button>
+    <div class="tunnel-bar">
+      <div class="field-tabs" role="tablist" aria-label="What to show">
+        <button type="button" role="tab" id="tab-temperature" data-field="temperature" aria-selected="true">Temperature</button>
+        <button type="button" role="tab" id="tab-mach" data-field="mach" aria-selected="false">Mach</button>
+        <button type="button" role="tab" id="tab-pressure" data-field="pressure" aria-selected="false">Pressure</button>
+        <button type="button" role="tab" id="tab-schlieren" data-field="schlieren" aria-selected="false">Schlieren</button>
+        <button type="button" role="tab" id="tab-turbulence" data-field="turbulence" aria-selected="false">Turbulence</button>
+        <button type="button" role="tab" id="tab-fuel" data-field="fuel" aria-selected="false">Fuel &amp; flame</button>
+      </div>
+      <button type="button" id="particles" class="toggle" aria-pressed="true">Particles</button>
     </div>
 
     <div class="viewport-scroll">
@@ -44,6 +48,8 @@
         <div class="plot" id="plot">
           <canvas id="flow" aria-label="Flow field"></canvas>
           <svg id="walls" class="walls" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <canvas id="fx" class="layer-glow" aria-hidden="true"></canvas>
+          <canvas id="trails" class="layer-glow" aria-hidden="true"></canvas>
           <div class="probe" id="probe" hidden></div>
         </div>
         <div class="axis" id="axis" aria-hidden="true"></div>
@@ -51,9 +57,10 @@
     </div>
 
     <div class="legend" id="legend">
-      <span class="legend-label" id="legend-label">Mach number</span>
+      <span class="legend-label" id="legend-label">Static temperature (K)</span>
       <div class="legend-bar" id="legend-bar"></div>
-      <div class="legend-ticks"><span id="legend-lo">0</span><span id="legend-hi">6</span></div>
+      <div class="legend-ticks"><span id="legend-lo">200</span><span id="legend-hi">3,000</span></div>
+      <span class="legend-walls"><i aria-hidden="true"></i>Glowing walls: heat flowing into the engine structure</span>
     </div>
   </section>
 
@@ -62,21 +69,29 @@
       <div class="control">
         <label for="mach">Flight Mach number <output id="mach-out" for="mach">6.0</output></label>
         <input type="range" id="mach" min="3" max="10" step="0.1" value="6">
-        <div class="scale"><span>3</span><span>H<sub>2</sub> ignites above ≈ Mach 5.3</span><span>10</span></div>
+        <div class="scale"><span>3</span><span>H<sub>2</sub> self-ignites above ≈ Mach 5</span><span>10</span></div>
       </div>
       <div class="control">
         <label for="phi">Fuel (equivalence ratio φ) <output id="phi-out" for="phi">0.60</output></label>
         <input type="range" id="phi" min="0" max="1.5" step="0.05" value="0.6">
-        <div class="scale"><span>off</span><span>φ = 1 is stoichiometric</span><span>1.5</span></div>
+        <div class="scale"><span>off</span><span>φ = 1 burns all the oxygen</span><span>1.5</span></div>
       </div>
       <div class="buttons">
         <button type="button" id="run" class="btn">Pause</button>
         <button type="button" id="reset" class="btn btn-quiet">Restart flow</button>
+      </div>
+      <div class="selects">
+        <label class="select-wrap" for="model">Flow model
+          <select id="model">
+            <option value="turbulent">Turbulent (RANS, Spalart–Allmaras)</option>
+            <option value="inviscid">Inviscid (Euler, no friction)</option>
+          </select>
+        </label>
         <label class="select-wrap" for="grid">Grid
           <select id="grid">
             <option value="320">Fast · 320 × 72</option>
             <option value="480">Sharp · 480 × 108</option>
-            <option value="640">Fine · 640 × 144</option>
+            <option value="640">Fine · 640 × 144 (slow)</option>
           </select>
         </label>
       </div>
@@ -84,35 +99,19 @@
 
     <dl class="readouts">
       <div class="readout readout-wide">
-        <dt>Net thrust <span class="hint">pressure force on walls, per metre of engine width</span></dt>
+        <dt>Net thrust <span class="hint">per metre of engine width</span></dt>
         <dd><span id="thrust" class="big">—</span> <span class="unit">kN/m</span></dd>
+        <div class="breakdown" id="breakdown">pressure thrust — · friction drag —</div>
         <div class="thrust-bar" aria-hidden="true"><span class="zero"></span><span id="thrust-fill" class="fill"></span></div>
       </div>
-      <div class="readout">
-        <dt>Isolator Mach</dt>
-        <dd><span id="iso">—</span></dd>
-      </div>
-      <div class="readout">
-        <dt>Air temp. before fuel</dt>
-        <dd><span id="tiso">—</span> <span class="unit">K</span></dd>
-      </div>
-      <div class="readout">
-        <dt>Peak flame temp.</dt>
-        <dd><span id="tcomb">—</span> <span class="unit">K</span></dd>
-      </div>
-      <div class="readout">
-        <dt>Fuel burned</dt>
-        <dd><span id="eta">—</span> <span class="unit">%</span></dd>
-      </div>
-      <div class="readout">
-        <dt>Combustor exit Mach</dt>
-        <dd><span id="exitm">—</span></dd>
-      </div>
-      <div class="readout">
-        <dt>Simulated time</dt>
-        <dd><span id="time">—</span> <span class="unit">ms</span></dd>
-        <div class="sub" id="sps"></div>
-      </div>
+      <div class="readout"><dt>Isolator Mach</dt><dd><span id="iso">—</span></dd></div>
+      <div class="readout"><dt>Air temp. at injectors</dt><dd><span id="tiso">—</span> <span class="unit">K</span></dd></div>
+      <div class="readout"><dt>Peak combustor temp.</dt><dd><span id="tcomb">—</span> <span class="unit">K</span></dd></div>
+      <div class="readout"><dt>Fuel burned</dt><dd><span id="eta">—</span> <span class="unit">%</span></dd></div>
+      <div class="readout"><dt>Combustor exit Mach</dt><dd><span id="exitm">—</span></dd></div>
+      <div class="readout"><dt>Friction drag</dt><dd><span id="drag">—</span> <span class="unit">kN/m</span></dd></div>
+      <div class="readout"><dt>Wall heat load</dt><dd><span id="heat">—</span> <span class="unit">MW/m</span></dd></div>
+      <div class="readout"><dt>Simulated time</dt><dd><span id="time">—</span> <span class="unit">ms</span></dd><div class="sub" id="sps"></div></div>
     </dl>
   </section>
 
@@ -121,19 +120,19 @@
     <ol class="stages">
       <li>
         <h3>Inlet</h3>
-        <p>Two ramps (9° then another 9°) and the cowl lip bend the air. Each bend makes an <em>oblique shock</em>, a thin sheet where pressure and temperature jump. The air slows from Mach 6 to about Mach 3.3 and heats to roughly 1,000 K without any moving parts.</p>
+        <p>Two 9° ramps and the cowl lip bend the air. Each bend makes an <em>oblique shock</em>, a thin sheet where pressure and temperature jump. At Mach 6 the air slows to about Mach 3.2 and heats from 227&nbsp;K to roughly 650&nbsp;K in the core. A turbulent <em>boundary layer</em> thickens along the walls, where friction slows the air.</p>
       </li>
       <li>
         <h3>Isolator</h3>
-        <p>A straight duct where shocks bounce between the walls. It keeps pressure spikes from the combustor away from the inlet. If too much pressure leaks forward, the inlet <em>unstarts</em> and the engine stops working.</p>
+        <p>A straight duct where shocks bounce between the walls. Where a shock hits a boundary layer, the slow air near the wall can separate. If the combustor pushes back too hard, that separation runs forward and the inlet <em>unstarts</em>.</p>
       </li>
       <li>
         <h3>Combustor</h3>
-        <p>Hydrogen is injected across the duct (thin band at the start). If the air is above about 850 K it ignites on its own. The flow stays supersonic while it burns: that is the “s” in scramjet. The floor tilts down 3° to give the hot gas room.</p>
+        <p>Sonic hydrogen jets fire from slots in the floor and the cowl (dashed box). The fuel has to mix with the air by turbulence before it can burn, and it only self-ignites where the air is hot enough. The flow stays supersonic while it burns: that is the “s” in scramjet.</p>
       </li>
       <li>
         <h3>Nozzle</h3>
-        <p>The floor drops away at 16° so the hot, high-pressure gas expands and speeds up. That pressure pushing on the sloped wall is the thrust. The open bottom side is a <em>single expansion ramp nozzle</em>, common on hypersonic vehicles.</p>
+        <p>The floor drops away at 16° so the hot, high-pressure gas expands and speeds up. Pressure on that sloped wall makes the thrust. Friction on every wall and the heat soaking into the structure work against it.</p>
       </li>
     </ol>
 
@@ -141,19 +140,20 @@
       <div>
         <h2>Things to try</h2>
         <ul class="tries">
-          <li><b>Drop to Mach 4.</b> The inlet still works, but the air only reaches about 640 K. The hydrogen never lights and the engine makes drag.</li>
-          <li><b>Turn fuel off.</b> Thrust goes negative. Without heat, the engine is just a shape pushing through the air.</li>
-          <li><b>Push φ toward 1.5.</b> More heat makes more thrust until the combustor exit nears Mach 1 and the heat starts backing up toward the isolator (thermal choking).</li>
-          <li><b>Fly at Mach 10.</b> The air is so hot it burns instantly, but the heat added is small next to the air’s huge kinetic energy, so thrust is weak.</li>
-          <li><b>Open Schlieren.</b> Like the optical technique used in real wind tunnels, it darkens where density changes fast, so every shock and expansion fan shows up.</li>
-          <li><b>Hover over the flow</b> to read Mach, temperature, pressure and speed at any point.</li>
+          <li><b>Drop to Mach 4.5.</b> The air never gets hot enough for hydrogen to self-ignite, so the engine only makes drag.</li>
+          <li><b>Switch the flow model to Inviscid.</b> Friction and wall heating vanish and thrust jumps. That gap is what real engine designers fight.</li>
+          <li><b>Open Turbulence.</b> The bright bands are turbulent boundary layers and mixing layers. They grow along every wall.</li>
+          <li><b>Push φ past 1.</b> There is more fuel than oxygen to burn it. Thrust barely creeps up while the share of fuel actually burned falls below half, and the combustor exit nears Mach 1 (thermal choking).</li>
+          <li><b>Fly at Mach 10.</b> The hydrogen burns instantly, but friction drag and a huge wall heat load eat the thrust.</li>
+          <li><b>Hover over the flow</b> to read Mach, temperature, pressure, speed and fuel at any point.</li>
         </ul>
       </div>
       <div>
         <h2>How it is computed</h2>
-        <p>The solver integrates the 2D compressible <b>Euler equations</b> (mass, momentum and energy, no viscosity) with a finite-volume method: MUSCL reconstruction with a van Leer limiter, the HLLC Riemann solver, and two-stage Runge–Kutta time steps. Walls use a ghost-cell immersed boundary, so the slanted ramps act as smooth walls on a square grid.</p>
-        <p>Fuel is a tracked mass fraction. It burns when the local temperature passes about 850 K, releasing an effective 50 MJ per kg of H<sub>2</sub>. That is lower than the real 120 MJ/kg, to make up for a gas model with constant γ&nbsp;=&nbsp;1.4 and no dissociation, and heat release stops near 3,000 K.</p>
-        <p class="caveat">Not modeled: viscosity and boundary layers, turbulence, real chemistry, fuel mixing. Numbers are a teaching approximation, not a design tool.</p>
+        <p>The solver integrates the 2D <b>Reynolds-averaged Navier–Stokes equations</b> with a finite-volume method: MUSCL reconstruction with a van Leer limiter, the HLLC Riemann solver for the shocks, central differences for viscous stresses and heat conduction, and two-stage Runge–Kutta time steps. Viscosity follows Sutherland’s law at the real Reynolds number of the flight condition (about 2 million per metre).</p>
+        <p><b>Turbulence</b> uses the Spalart–Allmaras one-equation model, the standard in aerospace CFD. The grid is too coarse to resolve the thin layer right at the wall, so <b>wall functions</b> (Spalding’s law of the wall and the Reynolds analogy) give the skin friction and heat flux, with the walls cooled to 1,000&nbsp;K. On the first ramp the friction lands within about 15% of the Van Driest II correlation.</p>
+        <p>Air is <b>thermally perfect</b>: its specific heat rises with temperature as N<sub>2</sub> and O<sub>2</sub> start to vibrate. Hydrogen burns in a one-step reaction with an Arrhenius rate. It needs oxygen, releases 120&nbsp;MJ/kg, and stops releasing heat near 2,900&nbsp;K, where water starts to dissociate.</p>
+        <p class="caveat">Simplified: 2D, averaged turbulence rather than resolved eddies, one-step chemistry, the mixture is treated as air, and the fuel jets are spread over their penetration height instead of resolved. Treat the numbers as a teaching approximation.</p>
       </div>
     </div>
   </section>

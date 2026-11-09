@@ -77,8 +77,10 @@ export function buildEngine() {
     yBody,
     yCowl,
     xLip,
-    // Fuel (hydrogen) is injected across the duct in this x-range.
-    injector: { x0: 2.30, x1: 2.36 },
+    // Hydrogen is injected from wall slots on the combustor floor and the
+    // cowl underside over this x-range. The sonic jets are too small for the
+    // grid to resolve, so their fuel is spread over the jet penetration height.
+    injector: { x0: 2.30, x1: 2.34, penetration: 0.045 },
     // Stations used for the readouts
     stations: { throat: xThroat + 0.05, isolator: 1.95, combustorEnd: xNoz - 0.02 },
     sections: [

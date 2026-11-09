@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 22
       - name: Solver smoke test (Mach 6, phi 0.6)
-        run: node test/run.js 6 0.6 1500 160
+        run: node test/run.js 6 0.6 1500 160 turbulent
 
   deploy:
     needs: test
