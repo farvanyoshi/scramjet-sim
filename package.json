@@ -1,0 +1,12 @@
+{
+  "name": "scramjet-sim",
+  "version": "1.0.0",
+  "description": "Interactive 2D compressible-flow simulation of a scramjet engine, in the browser",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node test/run.js",
+    "serve": "python3 -m http.server 8000"
+  },
+  "license": "MIT"
+}

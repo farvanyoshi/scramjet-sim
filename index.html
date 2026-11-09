@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scramjet Flow Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Interactive 2D compressible-flow simulation of a hydrogen-fueled scramjet engine, running in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+
+  <header class="masthead">
+    <div class="title-block">
+      <p class="eyebrow">Hypersonic propulsion · 2D Euler + H<sub>2</sub> combustion</p>
+      <h1>Scramjet Flow Lab</h1>
+      <p class="lede">A supersonic-combustion ramjet flying at <span id="lede-mach">Mach 6</span>, 30&nbsp;km up. Air enters faster than sound, gets squeezed by shock waves, burns hydrogen without ever slowing to subsonic, and blasts out the nozzle. Change the speed and the fuel and watch the flow respond.</p>
+    </div>
+    <div class="status" id="status" data-state="settling">
+      <span class="status-dot" aria-hidden="true"></span>
+      <div>
+        <div class="status-label" id="status-label">Starting up</div>
+        <div class="status-detail" id="status-detail">Flow is still sweeping through the engine.</div>
+      </div>
+    </div>
+  </header>
+
+  <section class="tunnel" aria-label="Simulation">
+    <div class="field-tabs" role="tablist" aria-label="What to show">
+      <button type="button" role="tab" id="tab-mach" data-field="mach" aria-selected="true">Mach</button>
+      <button type="button" role="tab" id="tab-temperature" data-field="temperature" aria-selected="false">Temperature</button>
+      <button type="button" role="tab" id="tab-pressure" data-field="pressure" aria-selected="false">Pressure</button>
+      <button type="button" role="tab" id="tab-schlieren" data-field="schlieren" aria-selected="false">Schlieren</button>
+      <button type="button" role="tab" id="tab-fuel" data-field="fuel" aria-selected="false">Fuel &amp; flame</button>
+    </div>
+
+    <div class="viewport-scroll">
+      <div class="viewport">
+        <div class="stations" id="stations" aria-hidden="true"></div>
+        <div class="plot" id="plot">
+          <canvas id="flow" aria-label="Flow field"></canvas>
+          <svg id="walls" class="walls" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="probe" id="probe" hidden></div>
+        </div>
+        <div class="axis" id="axis" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="legend" id="legend">
+      <span class="legend-label" id="legend-label">Mach number</span>
+      <div class="legend-bar" id="legend-bar"></div>
+      <div class="legend-ticks"><span id="legend-lo">0</span><span id="legend-hi">6</span></div>
+    </div>
+  </section>
+
+  <section class="console" aria-label="Controls and readouts">
+    <div class="controls">
+      <div class="control">
+        <label for="mach">Flight Mach number <output id="mach-out" for="mach">6.0</output></label>
+        <input type="range" id="mach" min="3" max="10" step="0.1" value="6">
+        <div class="scale"><span>3</span><span>H<sub>2</sub> ignites above ≈ Mach 5.3</span><span>10</span></div>
+      </div>
+      <div class="control">
+        <label for="phi">Fuel (equivalence ratio φ) <output id="phi-out" for="phi">0.60</output></label>
+        <input type="range" id="phi" min="0" max="1.5" step="0.05" value="0.6">
+        <div class="scale"><span>off</span><span>φ = 1 is stoichiometric</span><span>1.5</span></div>
+      </div>
+      <div class="buttons">
+        <button type="button" id="run" class="btn">Pause</button>
+        <button type="button" id="reset" class="btn btn-quiet">Restart flow</button>
+        <label class="select-wrap" for="grid">Grid
+          <select id="grid">
+            <option value="320">Fast · 320 × 72</option>
+            <option value="480">Sharp · 480 × 108</option>
+            <option value="640">Fine · 640 × 144</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <dl class="readouts">
+      <div class="readout readout-wide">
+        <dt>Net thrust <span class="hint">pressure force on walls, per metre of engine width</span></dt>
+        <dd><span id="thrust" class="big">—</span> <span class="unit">kN/m</span></dd>
+        <div class="thrust-bar" aria-hidden="true"><span class="zero"></span><span id="thrust-fill" class="fill"></span></div>
+      </div>
+      <div class="readout">
+        <dt>Isolator Mach</dt>
+        <dd><span id="iso">—</span></dd>
+      </div>
+      <div class="readout">
+        <dt>Air temp. before fuel</dt>
+        <dd><span id="tiso">—</span> <span class="unit">K</span></dd>
+      </div>
+      <div class="readout">
+        <dt>Peak flame temp.</dt>
+        <dd><span id="tcomb">—</span> <span class="unit">K</span></dd>
+      </div>
+      <div class="readout">
+        <dt>Fuel burned</dt>
+        <dd><span id="eta">—</span> <span class="unit">%</span></dd>
+      </div>
+      <div class="readout">
+        <dt>Combustor exit Mach</dt>
+        <dd><span id="exitm">—</span></dd>
+      </div>
+      <div class="readout">
+        <dt>Simulated time</dt>
+        <dd><span id="time">—</span> <span class="unit">ms</span></dd>
+        <div class="sub" id="sps"></div>
+      </div>
+    </dl>
+  </section>
+
+  <section class="notes">
+    <h2>What you are looking at</h2>
+    <ol class="stages">
+      <li>
+        <h3>Inlet</h3>
+        <p>Two ramps (9° then another 9°) and the cowl lip bend the air. Each bend makes an <em>oblique shock</em>, a thin sheet where pressure and temperature jump. The air slows from Mach 6 to about Mach 3.3 and heats to roughly 1,000 K without any moving parts.</p>
+      </li>
+      <li>
+        <h3>Isolator</h3>
+        <p>A straight duct where shocks bounce between the walls. It keeps pressure spikes from the combustor away from the inlet. If too much pressure leaks forward, the inlet <em>unstarts</em> and the engine stops working.</p>
+      </li>
+      <li>
+        <h3>Combustor</h3>
+        <p>Hydrogen is injected across the duct (thin band at the start). If the air is above about 850 K it ignites on its own. The flow stays supersonic while it burns: that is the “s” in scramjet. The floor tilts down 3° to give the hot gas room.</p>
+      </li>
+      <li>
+        <h3>Nozzle</h3>
+        <p>The floor drops away at 16° so the hot, high-pressure gas expands and speeds up. That pressure pushing on the sloped wall is the thrust. The open bottom side is a <em>single expansion ramp nozzle</em>, common on hypersonic vehicles.</p>
+      </li>
+    </ol>
+
+    <div class="two-col">
+      <div>
+        <h2>Things to try</h2>
+        <ul class="tries">
+          <li><b>Drop to Mach 4.</b> The inlet still works, but the air only reaches about 640 K. The hydrogen never lights and the engine makes drag.</li>
+          <li><b>Turn fuel off.</b> Thrust goes negative. Without heat, the engine is just a shape pushing through the air.</li>
+          <li><b>Push φ toward 1.5.</b> More heat makes more thrust until the combustor exit nears Mach 1 and the heat starts backing up toward the isolator (thermal choking).</li>
+          <li><b>Fly at Mach 10.</b> The air is so hot it burns instantly, but the heat added is small next to the air’s huge kinetic energy, so thrust is weak.</li>
+          <li><b>Open Schlieren.</b> Like the optical technique used in real wind tunnels, it darkens where density changes fast, so every shock and expansion fan shows up.</li>
+          <li><b>Hover over the flow</b> to read Mach, temperature, pressure and speed at any point.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>How it is computed</h2>
+        <p>The solver integrates the 2D compressible <b>Euler equations</b> (mass, momentum and energy, no viscosity) with a finite-volume method: MUSCL reconstruction with a van Leer limiter, the HLLC Riemann solver, and two-stage Runge–Kutta time steps. Walls use a ghost-cell immersed boundary, so the slanted ramps act as smooth walls on a square grid.</p>
+        <p>Fuel is a tracked mass fraction. It burns when the local temperature passes about 850 K, releasing an effective 50 MJ per kg of H<sub>2</sub>. That is lower than the real 120 MJ/kg, to make up for a gas model with constant γ&nbsp;=&nbsp;1.4 and no dissociation, and heat release stops near 3,000 K.</p>
+        <p class="caveat">Not modeled: viscosity and boundary layers, turbulence, real chemistry, fuel mixing. Numbers are a teaching approximation, not a design tool.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>Freestream: 30 km altitude, 226.5 K, 1.20 kPa. Engine length 4 m.</span>
+    <a href="https://github.com/farvanyoshi/scramjet-sim">Source on GitHub</a>
+  </footer>
+</main>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
